@@ -35,17 +35,29 @@ def generate_forecast(ticker):
     df = get_cached_data(ticker)
     df_prophet = df.rename(columns={"date": "ds", "price": "y"})
 
-    model = Prophet(seasonality_mode='multiplicative')
+    model = Prophet()  # 기본 설정 사용 (additive seasonality)
     model.fit(df_prophet)
 
-    future = model.make_future_dataframe(periods=7, freq='B')  # 7일 예측
+    future = model.make_future_dataframe(periods=7, freq='B')
     forecast = model.predict(future)
 
-    result_df = forecast[['ds', 'yhat']].tail(7)
-    result_df['ds'] = result_df['ds'].dt.strftime('%Y-%m-%d')
+    # 예측 결과와 최근 30일 실제 데이터 분리
+    forecast_df = forecast[['ds', 'yhat']]
+    forecast_df['ds'] = pd.to_datetime(forecast_df['ds'])
 
-    result = [{"date": row['ds'], "price": round(row['yhat'], 2)} for _, row in result_df.iterrows()]
-    return result
+    history_end = df_prophet['ds'].max()
+    recent_history = df_prophet[df_prophet['ds'] > history_end - pd.Timedelta(days=30)]
+    recent_history['type'] = 'actual'
+
+    prediction_part = forecast_df[forecast_df['ds'] > history_end]
+    prediction_part = prediction_part.rename(columns={"yhat": "y"})
+    prediction_part['type'] = 'forecast'
+
+    merged = pd.concat([recent_history[['ds', 'y', 'type']], prediction_part[['ds', 'y', 'type']]])
+    merged['ds'] = merged['ds'].dt.strftime('%Y-%m-%d')
+
+    return [{"date": row['ds'], "price": round(row['y'], 2), "type": row['type']} for _, row in merged.iterrows()]
+
 
 @app.route('/forecast', methods=['POST'])
 def forecast():

@@ -28,7 +28,7 @@ def get_cached_data(ticker):
     data = data[['4. close']].rename(columns={'4. close': 'price'})
     data.index = pd.to_datetime(data.index)
 
-    cutoff_date = datetime.datetime.now() - datetime.timedelta(days=365 * 5)
+    cutoff_date = datetime.datetime.now() - datetime.timedelta(days=30)
     df = data[data.index >= cutoff_date].reset_index()
     df = df.rename(columns={"index": "date"})
 

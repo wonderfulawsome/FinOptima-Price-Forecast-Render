@@ -9,7 +9,7 @@ from alpha_vantage.timeseries import TimeSeries
 app = Flask(__name__)
 CORS(app)
 
-API_KEY = os.environ.get("ALPHA_VANTAGE_API_KEY")  # Render 환경변수에서 키 사용
+API_KEY = os.environ.get("ALPHA_VANTAGE_API_KEY")  # Render 환경변수 사용
 
 def get_cached_data(ticker):
     cache_file = f"cache_{ticker}.csv"
@@ -19,7 +19,7 @@ def get_cached_data(ticker):
             return pd.read_csv(cache_file, parse_dates=['date'])
 
     ts = TimeSeries(key=API_KEY, output_format='pandas')
-    data, _ = ts.get_daily(symbol=ticker, outputsize='compact')  # compact = 최근 100일
+    data, _ = ts.get_daily(symbol=ticker, outputsize='compact')  # 최근 100일
     data = data[['4. close']].rename(columns={'4. close': 'price'})
     data.index = pd.to_datetime(data.index)
 

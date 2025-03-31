@@ -2,8 +2,7 @@ import os
 import io
 import datetime
 import pandas as pd
-import matplotlib.pyplot as plt
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 from prophet import Prophet
 from alpha_vantage.timeseries import TimeSeries
@@ -11,13 +10,10 @@ from alpha_vantage.timeseries import TimeSeries
 app = Flask(__name__)
 CORS(app)
 
-# 환경변수에서 API 키 불러오기
-API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY")
+API_KEY = os.environ.get("ALPHA_VANTAGE_API_KEY")  # Render 환경변수 사용
 
-# 캐시된 데이터 불러오기 또는 새로 받아오기
 def get_cached_data(ticker):
     cache_file = f"cache_{ticker}.csv"
-
     if os.path.exists(cache_file):
         modified_time = datetime.datetime.fromtimestamp(os.path.getmtime(cache_file))
         if datetime.datetime.now() - modified_time < datetime.timedelta(hours=24):
@@ -28,15 +24,14 @@ def get_cached_data(ticker):
     data = data[['4. close']].rename(columns={'4. close': 'price'})
     data.index = pd.to_datetime(data.index)
 
-    cutoff_date = datetime.datetime.now() - datetime.timedelta(days=30)
+    cutoff_date = datetime.datetime.now() - datetime.timedelta(days=365 * 5)
     df = data[data.index >= cutoff_date].reset_index()
     df = df.rename(columns={"index": "date"})
 
     df.to_csv(cache_file, index=False)
     return df
 
-# Prophet 예측 및 시각화
-def get_forecast_plot(ticker):
+def generate_forecast(ticker):
     df = get_cached_data(ticker)
     df_prophet = df.rename(columns={"date": "ds", "price": "y"})
 
@@ -46,35 +41,26 @@ def get_forecast_plot(ticker):
     future = model.make_future_dataframe(periods=7, freq='B')
     forecast = model.predict(future)
 
-    fig = model.plot(forecast)
-    plt.title(f"{ticker} 7-Day Forecast")
-    plt.xlabel("Date")
-    plt.ylabel("Price")
-    plt.grid(True)
-    plt.tight_layout()
+    result_df = forecast[['ds', 'yhat']].tail(7)
+    result_df['ds'] = result_df['ds'].dt.strftime('%Y-%m-%d')
 
-    buf = io.BytesIO()
-    fig.savefig(buf, format='png')
-    buf.seek(0)
-    plt.close(fig)
-    return buf
+    result = [{"date": row['ds'], "price": round(row['yhat'], 2)} for _, row in result_df.iterrows()]
+    return result
 
-# 예측 API
 @app.route('/forecast', methods=['POST'])
 def forecast():
     data = request.get_json()
     ticker = data.get("ticker", "QQQ")
     try:
-        image_buf = get_forecast_plot(ticker)
-        return send_file(image_buf, mimetype='image/png')
+        forecast_data = generate_forecast(ticker)
+        return jsonify({"forecast": forecast_data})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# 루트 경로 (Render용 헬스 체크)
 @app.route('/')
 def index():
-    return jsonify({"message": "Forecast API is running"})
+    return jsonify({"message": "JSON Forecast API is running"})
 
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 10000))  # Render가 할당한 포트 사용
+    port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port, debug=True)

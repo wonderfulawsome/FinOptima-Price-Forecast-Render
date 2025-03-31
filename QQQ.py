@@ -11,7 +11,8 @@ from alpha_vantage.timeseries import TimeSeries
 app = Flask(__name__)
 CORS(app)
 
-API_KEY = 'NE5PBQ8LFYJNMMGJ'  # 실제 Alpha Vantage API 키 입력
+# 환경변수에서 API 키 불러오기
+API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY")
 
 # 캐시된 데이터 불러오기 또는 새로 받아오기
 def get_cached_data(ticker):
@@ -22,7 +23,6 @@ def get_cached_data(ticker):
         if datetime.datetime.now() - modified_time < datetime.timedelta(hours=24):
             return pd.read_csv(cache_file, parse_dates=['date'])
 
-    # 새로 받아오기
     ts = TimeSeries(key=API_KEY, output_format='pandas')
     data, _ = ts.get_daily(symbol=ticker, outputsize='full')
     data = data[['4. close']].rename(columns={'4. close': 'price'})
@@ -35,7 +35,7 @@ def get_cached_data(ticker):
     df.to_csv(cache_file, index=False)
     return df
 
-# Prophet 예측 및 이미지 반환
+# Prophet 예측 및 시각화
 def get_forecast_plot(ticker):
     df = get_cached_data(ticker)
     df_prophet = df.rename(columns={"date": "ds", "price": "y"})
@@ -70,11 +70,11 @@ def forecast():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# 기본 루트 요청 (Render용)
+# 루트 경로 (Render용 헬스 체크)
 @app.route('/')
 def index():
     return jsonify({"message": "Forecast API is running"})
 
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 10000))  # Render용 포트
+    port = int(os.environ.get("PORT", 10000))  # Render가 할당한 포트 사용
     app.run(host="0.0.0.0", port=port, debug=True)

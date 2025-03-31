@@ -10,7 +10,7 @@ from alpha_vantage.timeseries import TimeSeries
 app = Flask(__name__)
 CORS(app)
 
-API_KEY = os.environ.get("ALPHA_VANTAGE_API_KEY")  # Render 환경변수 사용
+API_KEY = os.environ.get("ALPHA_VANTAGE_API_KEY")  # Render 환경변수에서 키 사용
 
 def get_cached_data(ticker):
     cache_file = f"cache_{ticker}.csv"
@@ -20,11 +20,11 @@ def get_cached_data(ticker):
             return pd.read_csv(cache_file, parse_dates=['date'])
 
     ts = TimeSeries(key=API_KEY, output_format='pandas')
-    data, _ = ts.get_daily(symbol=ticker, outputsize='full')
+    data, _ = ts.get_daily(symbol=ticker, outputsize='compact')  # compact = 최근 100일
     data = data[['4. close']].rename(columns={'4. close': 'price'})
     data.index = pd.to_datetime(data.index)
 
-    cutoff_date = datetime.datetime.now() - datetime.timedelta(days=365 * 5)
+    cutoff_date = datetime.datetime.now() - datetime.timedelta(days=30)
     df = data[data.index >= cutoff_date].reset_index()
     df = df.rename(columns={"index": "date"})
 
@@ -35,10 +35,10 @@ def generate_forecast(ticker):
     df = get_cached_data(ticker)
     df_prophet = df.rename(columns={"date": "ds", "price": "y"})
 
-    model = Prophet()
+    model = Prophet(seasonality_mode='multiplicative')
     model.fit(df_prophet)
 
-    future = model.make_future_dataframe(periods=7, freq='B')
+    future = model.make_future_dataframe(periods=7, freq='B')  # 7일 예측
     forecast = model.predict(future)
 
     result_df = forecast[['ds', 'yhat']].tail(7)

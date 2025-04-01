@@ -1,10 +1,10 @@
 import os
 import datetime
+import requests
 import pandas as pd
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from prophet import Prophet
-from alpha_vantage.timeseries import TimeSeries
 
 app = Flask(__name__)
 CORS(app)
@@ -18,15 +18,20 @@ def get_cached_data(ticker):
         if datetime.datetime.now() - modified_time < datetime.timedelta(hours=24):
             return pd.read_csv(cache_file, parse_dates=['date'])
     
-    ts = TimeSeries(key=API_KEY, output_format='pandas')
-    data, _ = ts.get_daily(symbol=ticker, outputsize='compact')
-    data = data[['4. close']].rename(columns={'4. close': 'price'})
-    data.index = pd.to_datetime(data.index)
-
-    cutoff_date = datetime.datetime.now() - datetime.timedelta(days=100)
-    df = data[data.index >= cutoff_date].reset_index()
-    df = df.rename(columns={"index": "date"})
-
+    url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{ticker}?timeseries=100&apikey={API_KEY}"
+    response = requests.get(url)
+    if response.status_code != 200:
+        raise Exception(f"FMP API error: {response.text}")
+    data = response.json()
+    historical = data.get("historical", [])
+    if not historical:
+        raise Exception("No historical data found.")
+    
+    df = pd.DataFrame(historical)
+    df = df[['date', 'close']].rename(columns={'close': 'price'})
+    df['date'] = pd.to_datetime(df['date'])
+    df = df.sort_values('date')
+    
     df.to_csv(cache_file, index=False)
     return df
 
@@ -46,7 +51,6 @@ def generate_forecast(ticker):
     forecast_df = forecast_df.sort_values('ds')
 
     history_end = df_prophet['ds'].max()
-    # 100일 전체 실제 데이터 사용
     recent_history = df_prophet.copy()
     recent_history['type'] = 'actual'
 

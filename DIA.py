@@ -9,7 +9,7 @@ from alpha_vantage.timeseries import TimeSeries
 app = Flask(__name__)
 CORS(app)
 
-API_KEY = os.environ.get("Alpha_Vantage_API_KEY")
+API_KEY = os.environ.get("ALPHA_VANTAGE_API_KEY")
 
 def get_cached_data(ticker):
     cache_file = f"cache_{ticker}.csv"
@@ -73,7 +73,7 @@ def generate_forecast(ticker):
 @app.route('/forecast', methods=['POST'])
 def forecast():
     data = request.get_json()
-    ticker = data.get("ticker", "IBIT")
+    ticker = data.get("ticker", "DIA")
     try:
         forecast_data = generate_forecast(ticker)
         return jsonify({"forecast": forecast_data})

@@ -12,9 +12,16 @@ CORS(app)
 API_KEY = os.environ.get("FMP_API_KEY")
 
 def generate_forecast(ticker):
-    # URL에서 timeseries 파라미터 제거
-    url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{ticker}?apikey={API_KEY}"
-    response = requests.get(url)
+    # 타임스탬프를 추가하여 캐싱 방지
+    current_time = datetime.datetime.now().timestamp()
+    url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{ticker}?apikey={API_KEY}&_={current_time}"
+    
+    headers = {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache"
+    }
+    
+    response = requests.get(url, headers=headers)
     if response.status_code != 200:
         raise Exception(f"FMP API error: {response.text}")
     data = response.json()
@@ -69,14 +76,27 @@ def forecast():
     data = request.get_json()
     ticker = data.get("ticker", "DIA")
     try:
+        # 디버깅을 위한 로그 추가
+        print(f"Processing forecast request for ticker: {ticker} at {datetime.datetime.now()}")
         forecast_data = generate_forecast(ticker)
-        return jsonify({"forecast": forecast_data})
+        response = jsonify({"forecast": forecast_data})
+        # 캐시 방지 헤더 추가
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
     except Exception as e:
+        print(f"Error generating forecast for {ticker}: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/')
 def index():
-    return jsonify({"message": "JSON Forecast API is running"})
+    response = jsonify({"message": "JSON Forecast API is running"})
+    # 캐시 방지 헤더 추가
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 10000))

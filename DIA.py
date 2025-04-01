@@ -11,6 +11,7 @@ CORS(app)
 
 API_KEY = os.environ.get("FMP_API_KEY")
 
+# FMP API를 이용해 100일치 데이터를 캐싱
 def get_cached_data(ticker):
     cache_file = f"cache_{ticker}.csv"
     if os.path.exists(cache_file):

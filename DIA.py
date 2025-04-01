@@ -9,7 +9,7 @@ from alpha_vantage.timeseries import TimeSeries
 app = Flask(__name__)
 CORS(app)
 
-API_KEY = os.environ.get("ALPHA_VANTAGE_API_KEY")
+API_KEY = os.environ.get("FMP_API_KEY")
 
 def get_cached_data(ticker):
     cache_file = f"cache_{ticker}.csv"
@@ -23,7 +23,7 @@ def get_cached_data(ticker):
     data = data[['4. close']].rename(columns={'4. close': 'price'})
     data.index = pd.to_datetime(data.index)
 
-    cutoff_date = datetime.datetime.now() - datetime.timedelta(days=30)
+    cutoff_date = datetime.datetime.now() - datetime.timedelta(days=100)
     df = data[data.index >= cutoff_date].reset_index()
     df = df.rename(columns={"index": "date"})
 

@@ -73,7 +73,7 @@ def generate_forecast(ticker):
 @app.route('/forecast', methods=['POST'])
 def forecast():
     data = request.get_json()
-    ticker = data.get("ticker", "SOXX")
+    ticker = data.get("ticker", "SPY")
     try:
         forecast_data = generate_forecast(ticker)
         return jsonify({"forecast": forecast_data})

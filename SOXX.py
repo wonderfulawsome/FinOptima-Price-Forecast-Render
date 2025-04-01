@@ -6,7 +6,6 @@ import logging
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from prophet import Prophet
-from alpha_vantage.timeseries import TimeSeries
 from sqlalchemy import create_engine, Column, String, Text, DateTime, Table, MetaData, select, insert, update, inspect
 
 # 로깅 설정

@@ -1,34 +1,69 @@
 import os
+import io
 import datetime
 import pandas as pd
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from prophet import Prophet
 from alpha_vantage.timeseries import TimeSeries
+from sqlalchemy import create_engine, Column, String, Text, DateTime, Table, MetaData, select, insert, update
 
 app = Flask(__name__)
 CORS(app)
 
 API_KEY = os.environ.get("ALPHA_VANTAGE_API_KEY")
+DATABASE_URL = os.environ.get("DATABASE_URL")  # Render에서 설정한 PostgreSQL URL
+
+# SQLAlchemy 엔진 및 메타데이터 설정
+engine = create_engine(DATABASE_URL)
+metadata = MetaData()
+
+# 캐시 데이터를 저장할 테이블 정의
+cache_table = Table(
+    'cache_data', metadata,
+    Column('ticker', String, primary_key=True),
+    Column('data', Text),
+    Column('updated_at', DateTime)
+)
+
+metadata.create_all(engine)
 
 def get_cached_data(ticker):
-    # 프로젝트 루트에 CSV 파일 생성
-    cache_file = os.path.join(os.getcwd(), f"cache_{ticker}.csv")
-    if os.path.exists(cache_file):
-        modified_time = datetime.datetime.fromtimestamp(os.path.getmtime(cache_file))
-        if datetime.datetime.now() - modified_time < datetime.timedelta(hours=24):
-            return pd.read_csv(cache_file, parse_dates=['date'])
-    
+    conn = engine.connect()
+    s = select([cache_table]).where(cache_table.c.ticker == ticker)
+    result = conn.execute(s).fetchone()
+    # 캐시가 있고, 24시간 이내이면 사용
+    if result:
+        updated_at = result['updated_at']
+        if datetime.datetime.now() - updated_at < datetime.timedelta(hours=24):
+            csv_data = result['data']
+            df = pd.read_csv(io.StringIO(csv_data), parse_dates=['date'])
+            conn.close()
+            return df
+
+    # 캐시가 없거나 24시간 이상 지난 경우, API에서 데이터 가져오기
     ts = TimeSeries(key=API_KEY, output_format='pandas')
     data, _ = ts.get_daily(symbol=ticker, outputsize='compact')
     data = data[['4. close']].rename(columns={'4. close': 'price'})
     data.index = pd.to_datetime(data.index)
-    
+
     cutoff_date = datetime.datetime.now() - datetime.timedelta(days=30)
     df = data[data.index >= cutoff_date].reset_index()
     df = df.rename(columns={"index": "date"})
-    
-    df.to_csv(cache_file, index=False)
+
+    # DataFrame을 CSV 문자열로 변환하여 DB에 저장
+    csv_buffer = io.StringIO()
+    df.to_csv(csv_buffer, index=False)
+    csv_data = csv_buffer.getvalue()
+
+    now = datetime.datetime.now()
+    if result:
+        upd = update(cache_table).where(cache_table.c.ticker == ticker).values(data=csv_data, updated_at=now)
+        conn.execute(upd)
+    else:
+        ins = insert(cache_table).values(ticker=ticker, data=csv_data, updated_at=now)
+        conn.execute(ins)
+    conn.close()
     return df
 
 def generate_forecast(ticker):
@@ -68,7 +103,7 @@ def generate_forecast(ticker):
     ]
 
 @app.route('/forecast', methods=['POST'])
-def forecast():
+def forecast_route():
     data = request.get_json()
     ticker = data.get("ticker", "SOXX")
     try:

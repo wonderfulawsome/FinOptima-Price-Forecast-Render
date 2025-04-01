@@ -1,22 +1,15 @@
 import os
-import io
 import datetime
 import pandas as pd
-import logging
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from prophet import Prophet
-from sqlalchemy import create_engine, Column, String, Text, DateTime, Table, MetaData, select, insert, update, inspect
-
-# 로깅 설정
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from alpha_vantage.timeseries import TimeSeries
 
 app = Flask(__name__)
 CORS(app)
 
-API_KEY = os.environ.get("FMP_API_KEY")
-DATABASE_URL = os.environ.get("DATABASE_URL")  # Render에서 설정한 PostgreSQL URL
+API_KEY = os.environ.get("Alpha_Vantage_API_KEY")
 
 if not DATABASE_URL:
     logger.error("DATABASE_URL 환경변수가 설정되지 않았습니다.")

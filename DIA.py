@@ -9,16 +9,11 @@ from prophet import Prophet
 app = Flask(__name__)
 CORS(app)
 
+# FMP_API_KEY 환경 변수에 올바른 FMP API 키가 설정되어 있는지 확인하세요.
 API_KEY = os.environ.get("FMP_API_KEY")
 
-# FMP API를 이용해 100일치 데이터를 캐싱
-def get_cached_data(ticker):
-    cache_file = f"cache_{ticker}.csv"
-    if os.path.exists(cache_file):
-        modified_time = datetime.datetime.fromtimestamp(os.path.getmtime(cache_file))
-        if datetime.datetime.now() - modified_time < datetime.timedelta(hours=24):
-            return pd.read_csv(cache_file, parse_dates=['date'])
-    
+def generate_forecast(ticker):
+    # FMP API 호출로 100일치 데이터 가져오기
     url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{ticker}?timeseries=100&apikey={API_KEY}"
     response = requests.get(url)
     if response.status_code != 200:
@@ -28,22 +23,20 @@ def get_cached_data(ticker):
     if not historical:
         raise Exception("No historical data found.")
     
+    # DataFrame 생성 및 정리
     df = pd.DataFrame(historical)
     df = df[['date', 'close']].rename(columns={'close': 'price'})
     df['date'] = pd.to_datetime(df['date'])
     df = df.sort_values('date')
     
-    df.to_csv(cache_file, index=False)
-    return df
-
-def generate_forecast(ticker):
-    df = get_cached_data(ticker)
+    # Prophet 모델 학습을 위한 데이터 준비
     df_prophet = df.rename(columns={"date": "ds", "price": "y"})
     df_prophet = df_prophet.sort_values('ds')
 
     model = Prophet()
     model.fit(df_prophet)
 
+    # 향후 7일 (영업일 기준) 예측
     future = model.make_future_dataframe(periods=7, freq='B')
     forecast = model.predict(future)
 
@@ -52,16 +45,16 @@ def generate_forecast(ticker):
     forecast_df = forecast_df.sort_values('ds')
 
     history_end = df_prophet['ds'].max()
-    recent_history = df_prophet.copy()
-    recent_history['type'] = 'actual'
+    actual = df_prophet.copy()
+    actual['type'] = 'actual'
 
-    prediction_part = forecast_df[forecast_df['ds'] > history_end].copy()
-    prediction_part = prediction_part.rename(columns={"yhat": "y"})
-    prediction_part['type'] = 'forecast'
+    forecast_part = forecast_df[forecast_df['ds'] > history_end].copy()
+    forecast_part = forecast_part.rename(columns={"yhat": "y"})
+    forecast_part['type'] = 'forecast'
 
     merged = pd.concat([
-        recent_history[['ds', 'y', 'type']],
-        prediction_part[['ds', 'y', 'type']]
+        actual[['ds', 'y', 'type']],
+        forecast_part[['ds', 'y', 'type']]
     ])
     merged['ds'] = pd.to_datetime(merged['ds'])
     merged = merged.sort_values('ds')

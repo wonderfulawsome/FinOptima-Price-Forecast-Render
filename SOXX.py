@@ -29,42 +29,41 @@ cache_table = Table(
 metadata.create_all(engine)
 
 def get_cached_data(ticker):
-    conn = engine.connect()
-    s = select([cache_table]).where(cache_table.c.ticker == ticker)
-    result = conn.execute(s).fetchone()
-    # 캐시가 있고, 24시간 이내이면 사용
-    if result:
-        updated_at = result['updated_at']
-        if datetime.datetime.now() - updated_at < datetime.timedelta(hours=24):
-            csv_data = result['data']
-            df = pd.read_csv(io.StringIO(csv_data), parse_dates=['date'])
-            conn.close()
-            return df
+    # engine.begin()을 사용하여 트랜잭션 내에서 작업
+    with engine.begin() as conn:
+        s = select([cache_table]).where(cache_table.c.ticker == ticker)
+        result = conn.execute(s).fetchone()
+        # 캐시가 있고, 24시간 이내이면 사용
+        if result:
+            updated_at = result['updated_at']
+            if datetime.datetime.now() - updated_at < datetime.timedelta(hours=24):
+                csv_data = result['data']
+                df = pd.read_csv(io.StringIO(csv_data), parse_dates=['date'])
+                return df
 
-    # 캐시가 없거나 24시간 이상 지난 경우, API에서 데이터 가져오기
-    ts = TimeSeries(key=API_KEY, output_format='pandas')
-    data, _ = ts.get_daily(symbol=ticker, outputsize='compact')
-    data = data[['4. close']].rename(columns={'4. close': 'price'})
-    data.index = pd.to_datetime(data.index)
+        # 캐시가 없거나 24시간 이상 지난 경우, API에서 데이터 가져오기
+        ts = TimeSeries(key=API_KEY, output_format='pandas')
+        data, _ = ts.get_daily(symbol=ticker, outputsize='compact')
+        data = data[['4. close']].rename(columns={'4. close': 'price'})
+        data.index = pd.to_datetime(data.index)
 
-    cutoff_date = datetime.datetime.now() - datetime.timedelta(days=30)
-    df = data[data.index >= cutoff_date].reset_index()
-    df = df.rename(columns={"index": "date"})
+        cutoff_date = datetime.datetime.now() - datetime.timedelta(days=30)
+        df = data[data.index >= cutoff_date].reset_index()
+        df = df.rename(columns={"index": "date"})
 
-    # DataFrame을 CSV 문자열로 변환하여 DB에 저장
-    csv_buffer = io.StringIO()
-    df.to_csv(csv_buffer, index=False)
-    csv_data = csv_buffer.getvalue()
+        # DataFrame을 CSV 문자열로 변환하여 DB에 저장
+        csv_buffer = io.StringIO()
+        df.to_csv(csv_buffer, index=False)
+        csv_data = csv_buffer.getvalue()
 
-    now = datetime.datetime.now()
-    if result:
-        upd = update(cache_table).where(cache_table.c.ticker == ticker).values(data=csv_data, updated_at=now)
-        conn.execute(upd)
-    else:
-        ins = insert(cache_table).values(ticker=ticker, data=csv_data, updated_at=now)
-        conn.execute(ins)
-    conn.close()
-    return df
+        now = datetime.datetime.now()
+        if result:
+            upd = update(cache_table).where(cache_table.c.ticker == ticker).values(data=csv_data, updated_at=now)
+            conn.execute(upd)
+        else:
+            ins = insert(cache_table).values(ticker=ticker, data=csv_data, updated_at=now)
+            conn.execute(ins)
+        return df
 
 def generate_forecast(ticker):
     df = get_cached_data(ticker)

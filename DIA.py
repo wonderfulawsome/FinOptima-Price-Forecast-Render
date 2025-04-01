@@ -46,7 +46,7 @@ def generate_forecast(ticker):
     forecast_df = forecast_df.sort_values('ds')
 
     history_end = df_prophet['ds'].max()
-    # 전체 실제 데이터 (100일) 사용
+    # 100일 전체 실제 데이터 사용
     recent_history = df_prophet.copy()
     recent_history['type'] = 'actual'
 

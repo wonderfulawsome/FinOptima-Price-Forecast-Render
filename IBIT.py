@@ -9,7 +9,7 @@ from alpha_vantage.timeseries import TimeSeries
 app = Flask(__name__)
 CORS(app)
 
-API_KEY = os.environ.get("Alpha_Vantage_API_KEY")
+API_KEY = os.environ.get("ALPHA_VANTAGE_API_KEY")
 
 def get_cached_data(ticker):
     cache_file = f"cache_{ticker}.csv"
@@ -23,7 +23,7 @@ def get_cached_data(ticker):
     data = data[['4. close']].rename(columns={'4. close': 'price'})
     data.index = pd.to_datetime(data.index)
 
-    cutoff_date = datetime.datetime.now() - datetime.timedelta(days=100)  # 실제 데이터 100일
+    cutoff_date = datetime.datetime.now() - datetime.timedelta(days=30)
     df = data[data.index >= cutoff_date].reset_index()
     df = df.rename(columns={"index": "date"})
 
@@ -33,21 +33,22 @@ def get_cached_data(ticker):
 def generate_forecast(ticker):
     df = get_cached_data(ticker)
     df_prophet = df.rename(columns={"date": "ds", "price": "y"})
+    # 날짜 오름차순 정렬
     df_prophet = df_prophet.sort_values('ds')
 
     model = Prophet()
     model.fit(df_prophet)
 
-    future = model.make_future_dataframe(periods=7, freq='B')  # 예측 7일
+    future = model.make_future_dataframe(periods=7, freq='B')
     forecast = model.predict(future)
 
     forecast_df = forecast[['ds', 'yhat']]
     forecast_df['ds'] = pd.to_datetime(forecast_df['ds'])
+    # 날짜 정렬
     forecast_df = forecast_df.sort_values('ds')
 
     history_end = df_prophet['ds'].max()
-    # 전체 실제 데이터 (100일) 사용
-    recent_history = df_prophet.copy()
+    recent_history = df_prophet[df_prophet['ds'] > history_end - pd.Timedelta(days=30)]
     recent_history['type'] = 'actual'
 
     prediction_part = forecast_df[forecast_df['ds'] > history_end].copy()
@@ -58,8 +59,10 @@ def generate_forecast(ticker):
         recent_history[['ds', 'y', 'type']],
         prediction_part[['ds', 'y', 'type']]
     ])
+    # 날짜 오름차순 정렬 
     merged['ds'] = pd.to_datetime(merged['ds'])
     merged = merged.sort_values('ds')
+    # 문자열 변환
     merged['ds'] = merged['ds'].dt.strftime('%Y-%m-%d')
 
     return [

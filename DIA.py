@@ -38,6 +38,7 @@ def generate_forecast(ticker):
     forecast_df = forecast_df.sort_values('ds')
 
     history_end = df_prophet['ds'].max()
+    # 최근 30일치 실제 데이터 표시
     recent_history = df_prophet[df_prophet['ds'] > history_end - pd.Timedelta(days=30)]
     recent_history['type'] = 'actual'
 
@@ -45,10 +46,7 @@ def generate_forecast(ticker):
     prediction_part = prediction_part.rename(columns={"yhat": "y"})
     prediction_part['type'] = 'forecast'
 
-    merged = pd.concat([
-        recent_history[['ds', 'y', 'type']],
-        prediction_part[['ds', 'y', 'type']]
-    ])
+    merged = pd.concat([recent_history[['ds', 'y', 'type']], prediction_part[['ds', 'y', 'type']]])
     merged['ds'] = pd.to_datetime(merged['ds'])
     merged = merged.sort_values('ds')
     merged['ds'] = merged['ds'].dt.strftime('%Y-%m-%d')

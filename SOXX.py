@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 CORS(app)
 
-API_KEY = os.environ.get("ALPHA_VANTAGE_API_KEY")
+API_KEY = os.environ.get("FMP_API_KEY")
 DATABASE_URL = os.environ.get("DATABASE_URL")  # Render에서 설정한 PostgreSQL URL
 
 if not DATABASE_URL:

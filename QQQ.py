@@ -50,56 +50,70 @@ def predict_stock():
     model.add_regressor('rsi', standardize=True)
     model.fit(train_df)
     future = model.make_future_dataframe(periods=30)
+
     last_date = df['date'].max()
     last_sma20 = df.loc[df['date']==last_date,'sma20'].values[0]
     last_sma50 = df.loc[df['date']==last_date,'sma50'].values[0]
     last_rsi = df.loc[df['date']==last_date,'rsi'].values[0]
+
     for col in ['sma20','sma50','volume_ratio','rsi']:
-        for d,v in zip(df['date'], df[col]):
+        for d, v in zip(df['date'], df[col]):
             future.loc[future['ds']==d, col] = v
+
     f_dates = future[future['ds']>last_date]['ds']
-    for i,d in enumerate(f_dates):
+    for i, d in enumerate(f_dates):
         future.loc[future['ds']==d,'sma20'] = last_sma20*(1+np.random.normal(0,0.005)*(i+1))
         future.loc[future['ds']==d,'sma50'] = last_sma50*(1+np.random.normal(0,0.003)*(i+1))
-        if i==0: future.loc[future['ds']==d,'rsi'] = last_rsi
+        if i==0:
+            future.loc[future['ds']==d,'rsi'] = last_rsi
         else:
             prev_rsi = future.loc[future['ds']==f_dates.iloc[i-1],'rsi'].values[0]
-            new_rsi = prev_rsi+np.random.normal(0,3)
-            if new_rsi>70: new_rsi-=np.random.uniform(2,5)
-            if new_rsi<30: new_rsi+=np.random.uniform(2,5)
+            new_rsi = prev_rsi + np.random.normal(0,3)
+            if new_rsi > 70: new_rsi -= np.random.uniform(2,5)
+            if new_rsi < 30: new_rsi += np.random.uniform(2,5)
             future.loc[future['ds']==d,'rsi'] = max(0, min(100, new_rsi))
         future.loc[future['ds']==d,'volume_ratio'] = max(0.5, np.random.normal(1,0.2))
+
     future = future.fillna(method='ffill')
     forecast = model.predict(future)
-    for i in range(1,len(forecast)):
-        if forecast['ds'].iloc[i]<=last_date: continue
+
+    for i in range(1, len(forecast)):
+        if forecast['ds'].iloc[i] <= last_date: 
+            continue
         base_vol = np.random.normal(0,0.01)
         rsi = future.loc[i,'rsi']
-        if rsi>70: rsi_eff = np.random.uniform(-0.02,-0.005)
-        elif rsi<30: rsi_eff = np.random.uniform(0.005,0.02)
+        if rsi > 70: rsi_eff = np.random.uniform(-0.02,-0.005)
+        elif rsi < 30: rsi_eff = np.random.uniform(0.005,0.02)
         else: rsi_eff = 0
         vol_eff = 0
-        if future.loc[i,'volume_ratio']>1.5: vol_eff = np.random.uniform(-0.02,0.02)
+        if future.loc[i,'volume_ratio'] > 1.5:
+            vol_eff = np.random.uniform(-0.02,0.02)
         sma_eff = 0
         price = forecast.loc[i,'yhat']
         sma20 = future.loc[i,'sma20']
-        if price<sma20*0.98: sma_eff = np.random.uniform(0.005,0.015)
-        elif price>sma20*1.02: sma_eff = np.random.uniform(-0.015,-0.005)
+        if price < sma20*0.98: 
+            sma_eff = np.random.uniform(0.005,0.015)
+        elif price > sma20*1.02:
+            sma_eff = np.random.uniform(-0.015,-0.005)
         total_eff = base_vol + rsi_eff + vol_eff + sma_eff
-        forecast.loc[i,'yhat'] *= (1+total_eff)
-        forecast.loc[i,'yhat_lower'] = forecast.loc[i,'yhat']*0.95
-        forecast.loc[i,'yhat_upper'] = forecast.loc[i,'yhat']*1.05
+        forecast.loc[i,'yhat'] *= (1 + total_eff)
+        forecast.loc[i,'yhat_lower'] = forecast.loc[i,'yhat'] * 0.95
+        forecast.loc[i,'yhat_upper'] = forecast.loc[i,'yhat'] * 1.05
+
     plt.figure(figsize=(16,10))
     plt.plot(df['date'], df['close'], 'k-', label='Real')
     plt.plot(df['date'], df['sma20'], 'g-', alpha=0.5, label='SMA 20')
     plt.plot(df['date'], df['sma50'], 'b-', alpha=0.5, label='SMA 50')
     plt.plot(df['date'], df['sma200'], 'r-', alpha=0.5, label='SMA 200')
-    mask = forecast['ds']>last_date
-    plt.plot(forecast.loc[mask,'ds'], forecast.loc[mask,'yhat'],'r--',label='Predicted')
-    plt.fill_between(forecast.loc[mask,'ds'],forecast.loc[mask,'yhat_lower'],
-                     forecast.loc[mask,'yhat_upper'],color='red',alpha=0.2)
-    plt.axvline(x=last_date,color='black',linestyle='--',label='Start')
+    mask = forecast['ds'] > last_date
+    plt.plot(forecast.loc[mask,'ds'], forecast.loc[mask,'yhat'], 'r--', label='Predicted')
+    plt.fill_between(forecast.loc[mask,'ds'], forecast.loc[mask,'yhat_lower'],
+                     forecast.loc[mask,'yhat_upper'], color='red', alpha=0.2)
+    plt.axvline(x=last_date, color='black', linestyle='--', label='Start')
     plt.title('QQQ Price Forecast')
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.show()
+
+if __name__ == "__main__":
+    predict_stock()

@@ -1,11 +1,19 @@
+# main.py
 import os
-import pandas as pd
+import io
+import base64
 import numpy as np
+import pandas as pd
 import requests
 import matplotlib.pyplot as plt
+from flask import Flask, request, jsonify
+from flask_cors import CORS
 from prophet import Prophet
 from ta.momentum import RSIIndicator
 from ta.trend import SMAIndicator
+
+app = Flask(__name__)
+CORS(app)  # CORS 허용
 
 API_KEY = os.environ.get("FMP_API", "DEMO_KEY")
 
@@ -37,8 +45,9 @@ def add_technical_indicators(df):
     df = df.fillna(method='ffill').fillna(method='bfill').reset_index(drop=True)
     return df
 
-def predict_stock():
-    df = get_stock_data('QQQ', 200)
+@app.route("/forecast/<ticker>", methods=["GET"])
+def forecast(ticker):
+    df = get_stock_data(ticker, 200)
     df = add_technical_indicators(df)
     train_df = df[['date','close','sma20','sma50','volume_ratio','rsi']].rename(columns={'date':'ds','close':'y'})
     train_df = train_df.fillna(method='ffill').fillna(method='bfill')
@@ -78,7 +87,7 @@ def predict_stock():
     forecast = model.predict(future)
 
     for i in range(1, len(forecast)):
-        if forecast['ds'].iloc[i] <= last_date: 
+        if forecast['ds'].iloc[i] <= last_date:
             continue
         base_vol = np.random.normal(0,0.01)
         rsi = future.loc[i,'rsi']
@@ -91,7 +100,7 @@ def predict_stock():
         sma_eff = 0
         price = forecast.loc[i,'yhat']
         sma20 = future.loc[i,'sma20']
-        if price < sma20*0.98: 
+        if price < sma20*0.98:
             sma_eff = np.random.uniform(0.005,0.015)
         elif price > sma20*1.02:
             sma_eff = np.random.uniform(-0.015,-0.005)
@@ -100,6 +109,7 @@ def predict_stock():
         forecast.loc[i,'yhat_lower'] = forecast.loc[i,'yhat'] * 0.95
         forecast.loc[i,'yhat_upper'] = forecast.loc[i,'yhat'] * 1.05
 
+    # 시각화 이미지 -> base64 변환
     plt.figure(figsize=(16,10))
     plt.plot(df['date'], df['close'], 'k-', label='Real')
     plt.plot(df['date'], df['sma20'], 'g-', alpha=0.5, label='SMA 20')
@@ -107,13 +117,25 @@ def predict_stock():
     plt.plot(df['date'], df['sma200'], 'r-', alpha=0.5, label='SMA 200')
     mask = forecast['ds'] > last_date
     plt.plot(forecast.loc[mask,'ds'], forecast.loc[mask,'yhat'], 'r--', label='Predicted')
-    plt.fill_between(forecast.loc[mask,'ds'], forecast.loc[mask,'yhat_lower'],
-                     forecast.loc[mask,'yhat_upper'], color='red', alpha=0.2)
+    plt.fill_between(
+        forecast.loc[mask,'ds'],
+        forecast.loc[mask,'yhat_lower'],
+        forecast.loc[mask,'yhat_upper'],
+        color='red', alpha=0.2
+    )
     plt.axvline(x=last_date, color='black', linestyle='--', label='Start')
-    plt.title('QQQ Price Forecast')
+    plt.title(f'{ticker} Price Forecast')
     plt.legend()
     plt.grid(True, alpha=0.3)
-    plt.show()
+
+    # 메모리에 그림을 저장
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png')
+    buf.seek(0)
+    base64_img = base64.b64encode(buf.read()).decode()
+    plt.close()
+
+    return jsonify({"image": base64_img})
 
 if __name__ == "__main__":
-    predict_stock()
+    app.run(host="0.0.0.0", port=5000)

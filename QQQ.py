@@ -36,7 +36,7 @@ def add_technical_indicators(df):
     df = df.copy()
     df['sma20'] = SMAIndicator(close=df['close'], window=20).sma_indicator()
     df['sma50'] = SMAIndicator(close=df['close'], window=50).sma_indicator()
-    df['sma200'] = SMAIndicator(close=df['close'], window=200).sma_indicator()
+    df['sma200'] = SMAIndicator(close=df['close'], window=5).sma_indicator()
     df['volume_sma20'] = df['volume'].rolling(20).mean()
     df['volume_ratio'] = df['volume'] / df['volume_sma20']
     df['volume_spike'] = np.where(df['volume_ratio'] > 1.5, 1, 0)

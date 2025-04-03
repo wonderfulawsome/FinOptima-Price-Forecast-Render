@@ -9,6 +9,9 @@ from prophet import Prophet
 from ta.momentum import RSIIndicator
 from ta.trend import SMAIndicator
 
+# 랜덤 고정
+np.random.seed(42)
+
 app = Flask(__name__)
 CORS(app)
 
@@ -23,7 +26,6 @@ def get_stock_data(ticker, days=200):
         df['date'] = pd.to_datetime(df['date'])
         return df.sort_values('date')
     except:
-        np.random.seed(42)
         dates = pd.date_range(end=pd.Timestamp.today(), periods=days)
         close = np.random.normal(500, 50, days).cumsum() + 400
         volume = np.random.randint(2e7, 5e7, days)
@@ -47,9 +49,9 @@ def forecast(ticker):
     df = get_stock_data(ticker, 200)
     df = add_technical_indicators(df)
 
-    # 학습용
     train_df = df[['date','close','sma20','sma50','volume_ratio','rsi']].rename(columns={'date':'ds','close':'y'})
     train_df = train_df.fillna(method='ffill').fillna(method='bfill')
+
     model = Prophet(
         changepoint_prior_scale=0.1,
         seasonality_mode='multiplicative',
@@ -63,71 +65,61 @@ def forecast(ticker):
     model.add_regressor('rsi', standardize=True)
     model.fit(train_df)
 
-    # 미래 dataframe
     future = model.make_future_dataframe(periods=30)
     last_date = df['date'].max()
-    # 마지막 인덱스 지표
     last_sma20 = df.loc[df['date']==last_date,'sma20'].values[0]
     last_sma50 = df.loc[df['date']==last_date,'sma50'].values[0]
     last_rsi   = df.loc[df['date']==last_date,'rsi'].values[0]
 
-    # 과거 지표 삽입
     for col in ['sma20','sma50','volume_ratio','rsi']:
         for d, val in zip(df['date'], df[col]):
             future.loc[future['ds']==d, col] = val
 
-    # 미래 지표 시뮬레이션
     future_dates = future[future['ds'] > last_date]['ds']
     for i, d in enumerate(future_dates):
-        future.loc[future['ds']==d,'sma20'] = last_sma20*(1+np.random.normal(0,0.005)*(i+1))
-        future.loc[future['ds']==d,'sma50'] = last_sma50*(1+np.random.normal(0,0.003)*(i+1))
+        future.loc[future['ds']==d,'sma20'] = last_sma20*(1+np.random.normal(0,0.002)*(i+1))
+        future.loc[future['ds']==d,'sma50'] = last_sma50*(1+np.random.normal(0,0.001)*(i+1))
         if i==0:
             future.loc[future['ds']==d,'rsi'] = last_rsi
         else:
             prev_rsi = future.loc[future['ds']==future_dates.iloc[i-1],'rsi'].values[0]
-            new_rsi = prev_rsi + np.random.normal(0,3)
-            if new_rsi>70: new_rsi -= np.random.uniform(2,5)
-            if new_rsi<30: new_rsi += np.random.uniform(2,5)
+            new_rsi = prev_rsi + np.random.normal(0, 1.5)
+            if new_rsi>70: new_rsi -= np.random.uniform(1, 2.5)
+            if new_rsi<30: new_rsi += np.random.uniform(1, 2.5)
             future.loc[future['ds']==d,'rsi'] = max(0, min(100, new_rsi))
-        future.loc[future['ds']==d,'volume_ratio'] = max(0.5, np.random.normal(1,0.2))
+        future.loc[future['ds']==d,'volume_ratio'] = max(0.5, np.random.normal(1, 0.1))
 
     future = future.fillna(method='ffill')
     forecast_df = model.predict(future)
 
-    # 변동성 추가
     for i in range(1, len(forecast_df)):
         if forecast_df['ds'].iloc[i] <= last_date: 
             continue
-        base_vol = np.random.normal(0,0.01)
+        base_vol = np.random.normal(0, 0.005)
         rsi_val  = future.loc[i,'rsi']
-        if rsi_val > 70:  rsi_eff = np.random.uniform(-0.02,-0.005)
-        elif rsi_val <30: rsi_eff = np.random.uniform(0.005,0.02)
+        if rsi_val > 70:  rsi_eff = np.random.uniform(-0.01, -0.002)
+        elif rsi_val <30: rsi_eff = np.random.uniform(0.002, 0.01)
         else:             rsi_eff = 0
         vol_eff=0
         if future.loc[i,'volume_ratio']>1.5:
-            vol_eff = np.random.uniform(-0.02,0.02)
-
+            vol_eff = np.random.uniform(-0.01, 0.01)
         price = forecast_df.loc[i,'yhat']
         sma20 = future.loc[i,'sma20']
         sma_eff = 0
         if price < sma20*0.98:
-            sma_eff = np.random.uniform(0.005,0.015)
+            sma_eff = np.random.uniform(0.002, 0.01)
         elif price > sma20*1.02:
-            sma_eff = np.random.uniform(-0.015,-0.005)
-
+            sma_eff = np.random.uniform(-0.01, -0.002)
         total_eff = base_vol + rsi_eff + vol_eff + sma_eff
         forecast_df.loc[i,'yhat'] *= (1+ total_eff)
-        forecast_df.loc[i,'yhat_lower'] = forecast_df.loc[i,'yhat']*0.95
-        forecast_df.loc[i,'yhat_upper'] = forecast_df.loc[i,'yhat']*1.05
+        forecast_df.loc[i,'yhat_lower'] = forecast_df.loc[i,'yhat']*0.97
+        forecast_df.loc[i,'yhat_upper'] = forecast_df.loc[i,'yhat']*1.03
 
-    # 지지선/저항선 계산
     current_price = df['close'].iloc[-1]
     sma_now = [df['sma20'].iloc[-1], df['sma50'].iloc[-1], df['sma200'].iloc[-1]]
-
     support_list = [x for x in sma_now if x < current_price]
     resist_list  = [x for x in sma_now if x > current_price]
 
-    # 최근 고점/저점 (window=10)
     window = 10
     for i in range(window, len(df)-window):
         if df['close'].iloc[i] == max(df['close'].iloc[i-window:i+window]):
@@ -137,10 +129,8 @@ def forecast(ticker):
             if df['close'].iloc[i] < current_price:
                 support_list.append(df['close'].iloc[i])
 
-    # 거래량 스파이크 날짜
     volume_spike_dates = df.loc[df['volume_spike']==1,'date'].dt.strftime("%Y-%m-%d").tolist()
 
-    # real, predicted 구분
     real_rows = df[['date','close','sma20','sma50','sma200','volume_spike','rsi']]
     pred_rows = forecast_df[forecast_df['ds']>last_date].copy()
 
@@ -159,7 +149,6 @@ def forecast(ticker):
     pred_data = []
     for _, row in pred_rows.iterrows():
         dstr = row['ds'].strftime("%Y-%m-%d")
-        # yhat, 범위, 그리고 미래 sma20/50도 저장
         sma20_val = future.loc[future['ds']==row['ds'],'sma20'].values[0]
         sma50_val = future.loc[future['ds']==row['ds'],'sma50'].values[0]
         vol_spike = 1 if future.loc[future['ds']==row['ds'],'volume_ratio'].values[0]>1.5 else 0

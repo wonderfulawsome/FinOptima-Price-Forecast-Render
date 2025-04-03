@@ -49,11 +49,11 @@ def forecast(ticker):
     df = get_stock_data(ticker, 200)
     df = add_technical_indicators(df)
     
-    # Prophet 모델 학습 데이터 준비
-    train_df = df[['date','close','sma20','sma50','volume_ratio','rsi']].rename(columns={'date':'ds','close':'y'})
+    # Prophet 모델 학습 데이터 준비 (이동평균 regressors 제거)
+    train_df = df[['date','close','volume_ratio','rsi']].rename(columns={'date':'ds','close':'y'})
     train_df = train_df.fillna(method='ffill').fillna(method='bfill')
     
-    # Prophet 모델 초기화 및 회귀변수 추가
+    # Prophet 모델 초기화 및 regressors 추가 (volume_ratio와 rsi만 사용)
     model = Prophet(
         changepoint_prior_scale=0.1,
         seasonality_mode='multiplicative',
@@ -61,72 +61,46 @@ def forecast(ticker):
         weekly_seasonality=True,
         daily_seasonality=False
     )
-    model.add_regressor('sma20', standardize=False)
-    model.add_regressor('sma50', standardize=False)
     model.add_regressor('volume_ratio', standardize=True)
     model.add_regressor('rsi', standardize=True)
     model.fit(train_df)
     
-    # 순차적으로 미래 30일 예측 (이전 예측 주가를 포함하여 이동평균 재계산)
+    # 미래 30일 예측 준비
     forecast_days = 30
+    last_date = df['date'].max()
+    future_dates = [last_date + pd.Timedelta(days=i+1) for i in range(forecast_days)]
+    # forecast용 regressors: volume_ratio는 1.0, rsi는 마지막 값 그대로 사용
+    last_rsi = df['rsi'].iloc[-1]
+    future_df = pd.DataFrame({
+        'ds': future_dates,
+        'volume_ratio': [1.0] * forecast_days,
+        'rsi': [last_rsi] * forecast_days
+    })
+    
+    # Prophet 예측
+    forecast_result = model.predict(future_df)
+    forecasted = forecast_result[['ds','yhat','yhat_lower','yhat_upper']].set_index('ds')
+    
+    # 이동평균 계산을 위해 전체 가격 시리즈 생성 (과거 close + 예측 yhat)
+    historical = df.set_index('date')['close']
+    all_prices = pd.concat([historical, forecasted['yhat']])
+    sma20_all = all_prices.rolling(20).mean()
+    sma50_all = all_prices.rolling(50).mean()
+    
     forecast_list = []
-    current_data = df.copy()  # 실제 데이터
-    last_date = current_data['date'].max()
-    # 여기서는 volume_ratio는 1.0, rsi는 마지막 값을 그대로 사용 (필요시 더 세밀한 시뮬레이션 가능)
-    last_rsi = current_data['rsi'].iloc[-1]
-    
-    for i in range(forecast_days):
-        next_date = last_date + pd.Timedelta(days=1)
-        # 최근 20일, 50일의 종가를 사용해 이동평균 계산
-        if len(current_data) >= 20:
-            next_sma20 = current_data['close'].iloc[-20:].mean()
-        else:
-            next_sma20 = current_data['close'].mean()
-        if len(current_data) >= 50:
-            next_sma50 = current_data['close'].iloc[-50:].mean()
-        else:
-            next_sma50 = current_data['close'].mean()
-        next_volume_ratio = 1.0
-        next_rsi = last_rsi
-        
-        # 다음 날 예측을 위한 회귀변수 DataFrame 구성
-        next_reg = pd.DataFrame({
-            'ds': [next_date],
-            'sma20': [next_sma20],
-            'sma50': [next_sma50],
-            'volume_ratio': [next_volume_ratio],
-            'rsi': [next_rsi]
-        })
-        
-        # 하루 단위 예측
-        pred = model.predict(next_reg)
-        next_yhat = pred['yhat'].iloc[0]
-        
+    for d in future_dates:
         forecast_list.append({
-            "ds": next_date.strftime("%Y-%m-%d"),
-            "yhat": next_yhat,
-            "yhat_lower": pred['yhat_lower'].iloc[0],
-            "yhat_upper": pred['yhat_upper'].iloc[0],
-            "sma20": next_sma20,
-            "sma50": next_sma50,
-            "volume_spike": 1 if next_volume_ratio > 1.5 else 0,
-            "rsi": next_rsi
+            "ds": d.strftime("%Y-%m-%d"),
+            "yhat": forecasted.loc[d, 'yhat'],
+            "yhat_lower": forecasted.loc[d, 'yhat_lower'],
+            "yhat_upper": forecasted.loc[d, 'yhat_upper'],
+            "sma20": sma20_all.loc[d] if not pd.isna(sma20_all.loc[d]) else None,
+            "sma50": sma50_all.loc[d] if not pd.isna(sma50_all.loc[d]) else None,
+            "volume_spike": 0,  # volume_ratio=1.0이므로 spike 없음
+            "rsi": last_rsi
         })
-        
-        # 예측된 종가를 current_data에 추가해 다음 이동평균 계산에 반영
-        new_row = {
-            'date': next_date,
-            'close': next_yhat,
-            'sma20': next_sma20,
-            'sma50': next_sma50,
-            'sma200': current_data['close'].iloc[-5:].mean() if len(current_data) >= 5 else current_data['close'].mean(),
-            'volume_spike': 0,
-            'rsi': next_rsi
-        }
-        current_data = current_data.append(new_row, ignore_index=True)
-        last_date = next_date
     
-    # 지지와 저항선 산출 (기존 방식 유지)
+    # 지지와 저항선 산출 (과거 데이터 기준)
     current_price = df['close'].iloc[-1]
     sma_now = [df['sma20'].iloc[-1], df['sma50'].iloc[-1], df['sma200'].iloc[-1]]
     support_list = [x for x in sma_now if x < current_price]
@@ -158,7 +132,7 @@ def forecast(ticker):
         "predicted": forecast_list,
         "support": sorted(support_list),
         "resistance": sorted(resist_list),
-        "forecastStart": df['date'].max().strftime("%Y-%m-%d"),
+        "forecastStart": last_date.strftime("%Y-%m-%d"),
         "volumeSpikes": volume_spike_dates
     })
 
